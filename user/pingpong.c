@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
     // parent process
     else{
         write(fd[1], buf, sizeof(buf));
-        sleep(10);
+        wait(0);
         if (read(fd[0], buf, sizeof(buf)))
         {
             fprintf(2, "%d: received pong\n", getpid());
