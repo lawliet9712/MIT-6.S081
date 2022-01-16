@@ -42,7 +42,7 @@ int main(int argc, char *argv[])
 
     while ((line = readline()) != 0)
     {
-        printf("read .. %s\n", line);
+        //printf("read .. %s\n", line);
         char *pline = line;
         char *buf = malloc(36);
         char *pbuf = buf;
@@ -77,7 +77,7 @@ int main(int argc, char *argv[])
         int pid = fork();
         if (pid == 0)
         {
-            printf("exec %s %s\n", nargv[0], nargv[1]);
+            //printf("exec %s %s\n", nargv[0], nargv[1]);
             exec(nargv[0], nargv);
         }
         else
