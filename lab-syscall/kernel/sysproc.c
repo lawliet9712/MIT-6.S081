@@ -95,3 +95,18 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_trace(void)
+{
+  int tracemask;
+  if (argint(0, &tracemask) < 0)
+  {
+    printf("trace failed \n");
+    return -1;
+  }
+
+  printf("trace mask is %d\n ", tracemask);
+  myproc()->tracemask = tracemask;
+  return 0;
+}
