@@ -657,3 +657,15 @@ procdump(void)
     printf("\n");
   }
 }
+
+int calcprocnum()
+{
+  int nproc = 0;
+  struct proc* p;
+  for(p = proc; p < &proc[NPROC]; p++){
+    if(p->state == UNUSED)
+      continue;
+    nproc += 1;
+  }
+  return nproc;
+}
