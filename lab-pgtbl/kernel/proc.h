@@ -95,6 +95,8 @@ struct proc {
 
   int tracemask;               // for syscall trace mask
 
+  struct usyscall* usyscall;
+
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 
