@@ -77,10 +77,58 @@ sys_sleep(void)
 
 
 #ifdef LAB_PGTBL
+pte_t *
+_walk(pagetable_t pagetable, uint64 va)
+{
+  for(int level = 2; level > 0; level--) {
+    pte_t *pte = &pagetable[PX(level, va)];
+    if(*pte & PTE_V) {
+      pagetable = (pagetable_t)PTE2PA(*pte);
+    } else {
+      return 0;
+    }
+  }
+  return &pagetable[PX(0, va)];
+}
+
 int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
+  int page_cnt;
+  uint64 start_addr;
+  uint64 out_result;
+
+  if (argaddr(0, &start_addr) < 0)
+    return -1;
+  if (argint(1, &page_cnt) < 0)
+    return -1;
+  if (argaddr(2, &out_result) < 0)
+    return -1;
+
+  //printf("start addr %p \n ", start_addr);
+  uint32 scan_result = 0;
+  pagetable_t pagetable = myproc()->pagetable;
+  for (int i = 0; i < page_cnt; i++)
+  {
+    pte_t* pte = _walk(pagetable, start_addr);
+    if (pte == 0)
+      continue;
+    
+    //printf("found pte %p no.%d\n", *pte, i);
+    if ((*pte & PTE_A))
+    {
+      scan_result |= (1 << i);
+      *pte &= (~PTE_A); // need to clear bit , becasue if set PTE_A , will forever exists
+      //printf("scan %d is valid \n", i);
+    }
+      
+    start_addr += PGSIZE;
+  }
+
+  if(copyout(pagetable, out_result, (char *)&scan_result, sizeof(uint32)) < 0)
+      return -1;
+
   return 0;
 }
 #endif
