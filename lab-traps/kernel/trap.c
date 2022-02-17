@@ -32,7 +32,11 @@ trapinithart(void)
 void handle_alarm(){
   struct proc *p = myproc();
   p->alarm_passed_ticks++;
-  if (p->alarm_ticks > p->alarm_passed_ticks){
+  if (p->alarm_passed_ticks > p->alarm_ticks)
+    return;
+  
+  if (p->alarm_ticks == p->alarm_passed_ticks){
+    memmove(p->alarm_trapframe, p->trapframe, PGSIZE);
     p->trapframe->epc = p->alarm_handler;
   }
 }

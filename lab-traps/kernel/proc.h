@@ -109,4 +109,6 @@ struct proc {
   int alarm_ticks;             // sigalarm args, per alarm_ticks have passed will call alarm_handler
   uint64 alarm_handler;      // sigalarm args
   int alarm_passed_ticks;      // passed ticks after start sigalarm call
+  struct trapframe *alarm_trapframe; // data page for trampoline.S
+  int executed; // is executing handle
 };
