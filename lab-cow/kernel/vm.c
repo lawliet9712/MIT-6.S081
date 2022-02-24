@@ -144,12 +144,13 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
     panic("mappages: size");
   
   a = PGROUNDDOWN(va);
+  
   last = PGROUNDDOWN(va + size - 1);
+  //printf("pagetable=%x, map va=%x, pa=%x, last=%x, size=%d\n", pagetable, a, pa, last, size);
+  
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V)
-      panic("mappages: remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
@@ -302,23 +303,30 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
-  uint flags;
-  char *mem;
+  //uint flags;
+  //char *mem;
 
+  //printf("start copy \n");
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    int flags = PTE_FLAGS(*pte); // copy flag , remove write permission and add rsw flag
+    if (flags & PTE_W){
+      flags = (flags & (~PTE_W)) | PTE_RSW;
+      if(mappages(old, i, PGSIZE, (uint64)pa, flags) != 0){ // modify old page attr
+        goto err;
+      }
+    }
+
+    //printf("copy : i=%d, pa=%x, oldflags=%x, newflags=%x\n", i, pa, old_flags, new_flags);
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
       goto err;
     }
+
+    inc_page_ref(pa);
   }
   return 0;
 
@@ -347,7 +355,7 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
-
+  //printf("start copyout , dstva=%x, src=%x, len=%x\n", dstva, (uint64)src, len);
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
@@ -356,6 +364,13 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
+
+    pte_t* dst_pte = walk(pagetable, va0, 0);
+    if (*dst_pte & PTE_RSW){
+      pagefault(pagetable, dstva);
+      pa0 = (uint64)walkaddr(pagetable, va0);
+    }
+
     memmove((void *)(pa0 + (dstva - va0)), src, n);
 
     len -= n;
@@ -431,4 +446,28 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+int
+pagefault(pagetable_t pagetable, uint64 fault_va)
+{
+  pte_t* pte = walk(pagetable, fault_va, 0);
+  if ((*pte & PTE_RSW) == 0)
+    return -1;
+
+  // step 1 : copy origin page
+  uint64 fault_pa = walkaddr(pagetable, fault_va);
+  void* dst_pa = kalloc();
+  if (dst_pa == 0){
+    return -1;
+  }
+  memmove(dst_pa, (void*)fault_pa, PGSIZE);
+
+  // step 2 : copy page flag and allow write
+  int flag = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_RSW;  // remove rsw flag
+  *pte = PA2PTE(dst_pa) | flag;
+  //printf("page fault, stval=%x\n", fault_va);
+
+  kfree((void*)fault_pa);
+  return 0;
 }
