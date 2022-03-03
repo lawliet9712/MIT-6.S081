@@ -1,0 +1,12 @@
+1. Why are there missing keys with 2 threads, but not with 1 thread? Identify a sequence of events with 2 threads that can lead to a key being missing. Submit your sequence with a short explanation in answers-thread.txt
+单线程时，只有一个线程在工作，同一时刻只会触发一次 insert，而多线程时，有可能 2 个线程同时触发同一个 BUCKET 的 insert，传入同一个 p，此时会导致 2 个线程只有 1 个会插入成功
+同时执行 insert 是线程不安全的
+
+    void insert(int key, int value, struct entry **p, struct entry *n)
+    {
+        struct entry *e = malloc(sizeof(struct entry));
+        e->key = key;
+        e->value = value;
+        e->next = n;
+        *p = e;
+    }
