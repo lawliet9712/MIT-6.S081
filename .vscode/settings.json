@@ -2,7 +2,9 @@
     "files.associations": {
         "stat.h": "c",
         "types.h": "c",
-        "user.h": "c"
+        "user.h": "c",
+        "string_view": "c",
+        "memory": "c"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }
