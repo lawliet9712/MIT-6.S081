@@ -25,12 +25,6 @@ struct mem{
 
 struct mem kmem[NCPU];
 
-int get_pa_cpu_id(uint64 pa)
-{
-  uint64 start_addr = PGROUNDUP((uint64)end);
-  return ((pa - start_addr) / PGSIZE) % NCPU;
-}
-
 void
 kinit()
 {
