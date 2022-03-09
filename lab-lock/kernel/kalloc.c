@@ -18,25 +18,56 @@ struct run {
   struct run *next;
 };
 
-struct {
+struct mem{
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+};
+
+struct mem kmem[NCPU];
+
+int get_pa_cpu_id(uint64 pa)
+{
+  uint64 start_addr = PGROUNDUP((uint64)end);
+  return ((pa - start_addr) / PGSIZE) % NCPU;
+}
 
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
+  char buf[32];
+  int sz = 32;
+  for (int i = 0; i < NCPU; i++){
+    snprintf(buf, sz, "kmem_%d", i);
+    initlock(&kmem[i].lock, buf);
+  }
   freerange(end, (void*)PHYSTOP);
+}
+
+void 
+kfree_specific(void *pa, int cpuid)
+{
+  // Fill with junk to catch dangling refs.
+  memset(pa, 1, PGSIZE);
+
+  struct run* r = (struct run*)pa;
+  struct mem* cpu_mem = &kmem[cpuid];
+  acquire(&cpu_mem->lock);
+  r->next = cpu_mem->freelist;
+  cpu_mem->freelist = r;
+  release(&cpu_mem->lock);
 }
 
 void
 freerange(void *pa_start, void *pa_end)
 {
   char *p;
+  push_off();
+  int hart = cpuid();
+  pop_off();
   p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
-    kfree(p);
+  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE){
+    kfree_specific(p, hart);
+  }
 }
 
 // Free the page of physical memory pointed at by v,
@@ -54,12 +85,17 @@ kfree(void *pa)
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 
-  r = (struct run*)pa;
+  push_off();
+  int hart = cpuid();
+  pop_off();
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  r = (struct run*)pa;
+  //int hart = get_pa_cpu_id((uint64)r);
+  struct mem* cpu_mem = &kmem[hart];
+  acquire(&cpu_mem->lock);
+  r->next = cpu_mem->freelist;
+  cpu_mem->freelist = r;
+  release(&cpu_mem->lock);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -69,12 +105,31 @@ void *
 kalloc(void)
 {
   struct run *r;
-
-  acquire(&kmem.lock);
-  r = kmem.freelist;
-  if(r)
-    kmem.freelist = r->next;
-  release(&kmem.lock);
+  push_off();
+  int hart = cpuid();
+  pop_off();
+  struct mem* cpu_mem = &kmem[hart];
+  acquire(&cpu_mem->lock);
+  r = cpu_mem->freelist;
+  if(r){
+    cpu_mem->freelist = r->next;
+    release(&cpu_mem->lock);
+  }
+  else // "steal" free memory from other cpu mem list
+  {
+    release(&cpu_mem->lock);
+    for (int i = 0; i < NCPU ; i++) {
+      cpu_mem = &kmem[i];
+      acquire(&cpu_mem->lock);
+      r = cpu_mem->freelist;
+      if (r){
+        cpu_mem->freelist = r->next;
+        release(&cpu_mem->lock);
+        break;
+      }
+      release(&cpu_mem->lock);
+    }
+  }
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
