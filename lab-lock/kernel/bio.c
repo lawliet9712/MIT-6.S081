@@ -24,6 +24,7 @@
 #include "buf.h"
 
 struct {
+  struct spinlock lock;
   struct buf buf[NBUF];
 
   // Linked list of all buffers, through prev/next.
@@ -36,9 +37,9 @@ void
 binit(void)
 {
   struct buf *b;
-  char buf[32];
-  int sz = 32;
-  int cnt = 0;
+
+  initlock(&bcache.lock, "bcache");
+
   // Create linked list of buffers
   bcache.head.prev = &bcache.head;
   bcache.head.next = &bcache.head;
@@ -48,8 +49,6 @@ binit(void)
     initsleeplock(&b->lock, "buffer");
     bcache.head.next->prev = b;
     bcache.head.next = b;
-    snprintf(buf, sz, "bcache_%d", cnt++);
-    initlock(&b->slock, buf);
   }
 }
 
@@ -61,12 +60,13 @@ bget(uint dev, uint blockno)
 {
   struct buf *b;
 
+  acquire(&bcache.lock);
+
   // Is the block already cached?
   for(b = bcache.head.next; b != &bcache.head; b = b->next){
     if(b->dev == dev && b->blockno == blockno){
-      acquire(&b->slock);
       b->refcnt++;
-      release(&b->slock);
+      release(&bcache.lock);
       acquiresleep(&b->lock);
       return b;
     }
@@ -76,12 +76,11 @@ bget(uint dev, uint blockno)
   // Recycle the least recently used (LRU) unused buffer.
   for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
     if(b->refcnt == 0) {
-      acquire(&b->slock);
       b->dev = dev;
       b->blockno = blockno;
       b->valid = 0;
       b->refcnt = 1;
-      release(&b->slock);
+      release(&bcache.lock);
       acquiresleep(&b->lock);
       return b;
     }
@@ -122,7 +121,7 @@ brelse(struct buf *b)
 
   releasesleep(&b->lock);
 
-  acquire(&b->slock);
+  acquire(&bcache.lock);
   b->refcnt--;
   if (b->refcnt == 0) {
     // no one is waiting for it.
@@ -134,21 +133,21 @@ brelse(struct buf *b)
     bcache.head.next = b;
   }
   
-  release(&b->slock);
+  release(&bcache.lock);
 }
 
 void
 bpin(struct buf *b) {
-  acquire(&b->slock);
+  acquire(&bcache.lock);
   b->refcnt++;
-  release(&b->slock);
+  release(&bcache.lock);
 }
 
 void
 bunpin(struct buf *b) {
-  acquire(&b->slock);
+  acquire(&bcache.lock);
   b->refcnt--;
-  release(&b->slock);
+  release(&bcache.lock);
 }
 
 

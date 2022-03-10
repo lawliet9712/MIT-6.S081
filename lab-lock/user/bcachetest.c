@@ -121,9 +121,7 @@ test0()
         printf("chdir failed\n");
         exit(1);
       }
-
       readfile(file, N*BSIZE, 1);
-
       exit(0);
     }
   }
