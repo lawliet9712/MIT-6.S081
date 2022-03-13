@@ -62,21 +62,15 @@ binit(void)
   }
 
   // Create linked list of buffers
-  //bcache.head.prev = &bcache.head;
-  //bcache.head.next = &bcache.head;
   int blockcnt = 0;
   struct bcache_bucket* bucket;
   for(b = bcache.buf; b < bcache.buf+NBUF; b++){
-    //b->next = bcache.head.next;
-    //b->prev = &bcache.head;
     initsleeplock(&b->lock, "buffer");
     b->access_time = ticks;
     b->blockno = blockcnt++;
     bucket = &bcache.bucket[hash_key(b->blockno)];
     b->next = bucket->head.next;
     bucket->head.next = b;
-    //bcache.head.next->prev = b;
-    //bcache.head.next = b;
   }
 }
 
@@ -89,16 +83,12 @@ bget(uint dev, uint blockno)
   struct buf *b, *lrub;
   struct bcache_bucket* bucket = &bcache.bucket[hash_key(blockno)];
 
-  //acquire(&bcache.lock);
-  //printf("acquire %d bucket lock \n", hash_key(blockno));
   acquire(&bucket->lock);
   // Is the block already cached?
   for(b = &bucket->head; b; b = b->next){
     if(b->dev == dev && b->blockno == blockno){
       b->refcnt++;
       b->access_time = ticks;
-      //printf("found cache ... \n");
-      //printf("release %d bucket lock \n", hash_key(blockno));
       release(&bucket->lock);
       acquiresleep(&b->lock);
       return b;
@@ -114,6 +104,7 @@ bget(uint dev, uint blockno)
       lrub = b;
     }
   }
+  
   if (lrub) {
     goto setup;
   }
@@ -121,8 +112,6 @@ bget(uint dev, uint blockno)
   // Not cached.
   // find in the global array
   acquire(&bcache.lock);
-  //printf("acqurie bcache.block blockno=%d \n", hash_key(blockno));
-
 findbucket:
   lrub = 0;
   for(b = bcache.buf; b < bcache.buf+NBUF; b++){
@@ -131,16 +120,15 @@ findbucket:
     }
   }
 
-  ////printf("compare finish\n");
   if (lrub) {
     // step 1 : release from the old bucket
     // need to hold the old bucket lock
     struct bcache_bucket* old_bucket = &bcache.bucket[hash_key(lrub->blockno)];
-    //printf("acquire old_bucket %d \n", hash_key(lrub->blockno));
     acquire(&old_bucket->lock);
-    // other cpu may use this lrub before we lock the old_bucket lock
+    
+  // between line 114 ~ 126 , the old_bucket's lock is not hold, so may modify in this time
+  // need to check it again
     if (lrub->refcnt != 0){
-      //printf("release old_bucket %d \n", hash_key(lrub->blockno));
       release(&old_bucket->lock);
       goto findbucket;
     }
@@ -153,15 +141,12 @@ findbucket:
     }
     b->next = bnext->next;
 
-    //printf("release old_bucket %d \n", hash_key(lrub->blockno));
+    // we don't need to modify bcache.bucket , so we release the lock
     release(&old_bucket->lock);
     // step 2 : add to target bucket 
-    // pay attention, we hold the target bucket lock 
     lrub->next = bucket->head.next;
     bucket->head.next = lrub;
-    //printf("release bcache.block blockno=%d\n", hash_key(blockno));
     release(&bcache.lock);
-    //printf("update target bucket ... \n");
 
 setup:
     lrub->dev = dev;
@@ -170,7 +155,6 @@ setup:
     lrub->refcnt = 1;
     lrub->access_time = ticks;
     release(&bucket->lock);
-    //printf("release %d bucket lock \n", hash_key(blockno));
     acquiresleep(&lrub->lock);
     return lrub;
   }
@@ -213,19 +197,7 @@ brelse(struct buf *b)
   struct bcache_bucket* bucket = &bcache.bucket[hash_key(b->blockno)];
   acquire(&bucket->lock);
   b->refcnt--;
-  /*
-  if (b->refcnt == 0) {
-    // no one is waiting for it.
-    b->next->prev = b->prev;
-    b->prev->next = b->next;
-    b->next = bcache.head.next;
-    b->prev = &bcache.head;
-    bcache.head.next->prev = b;
-    bcache.head.next = b;
-  }
-  */
   release(&bucket->lock);
-  
 }
 
 void
