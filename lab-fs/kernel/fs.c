@@ -378,9 +378,8 @@ static uint
 bmap(struct inode *ip, uint bn)
 {
   uint addr, *a;
-  struct buf *bp;
-
-  if(bn < NDIRECT){
+  struct buf *bp, *inbp;
+  if(bn < (NDIRECT)){
     if((addr = ip->addrs[bn]) == 0)
       ip->addrs[bn] = addr = balloc(ip->dev);
     return addr;
@@ -400,6 +399,35 @@ bmap(struct inode *ip, uint bn)
     brelse(bp);
     return addr;
   }
+  bn -= NINDIRECT;
+  // load doublely-indirect block
+  if(bn < NDOUBLEINDIRECT){
+    if((addr = ip->addrs[NDIRECT + 1]) == 0) 
+      ip->addrs[NDIRECT + 1] = addr = balloc(ip->dev); // alloc doublely-indirect block
+
+    // get indirect block index
+    inbp = bread(ip->dev, addr);
+    a = (uint*)(inbp->data);
+
+    uint in_index = bn / NINDIRECT;
+    uint bn_index = bn % NINDIRECT;
+    
+    // Load indirect block, allocating if necessary.
+    if ((addr = a[in_index]) == 0){
+      a[in_index] = addr = balloc(ip->dev);
+      log_write(inbp);
+    }
+    brelse(inbp);
+    
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    if ((addr = a[bn_index]) == 0){
+      a[bn_index] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+    return addr;
+  }
 
   panic("bmap: out of range");
 }
@@ -409,12 +437,14 @@ bmap(struct inode *ip, uint bn)
 void
 itrunc(struct inode *ip)
 {
-  int i, j;
-  struct buf *bp;
+  int i, j, k;
+  struct buf *bp, *inbp;
   uint *a;
+  uint *tmp;
 
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
+    printf("start free 0\n");
       bfree(ip->dev, ip->addrs[i]);
       ip->addrs[i] = 0;
     }
@@ -428,8 +458,31 @@ itrunc(struct inode *ip)
         bfree(ip->dev, a[j]);
     }
     brelse(bp);
+    printf("start free 2\n");
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
+  }
+
+  if(ip->addrs[NDIRECT + 1]){
+    inbp = bread(ip->dev, ip->addrs[NDIRECT + 1]);
+    a = (uint*)(inbp->data);
+    for (j = 0; j < NINDIRECT; j++){
+      if (a[j]) {
+        bp = bread(ip->dev, a[j]);
+        tmp = (uint*)bp->data;
+        for(k = 0; k < NINDIRECT; k++){
+          if(tmp[k])
+            bfree(ip->dev, tmp[k]);
+        }
+        brelse(bp);
+        printf("start free 3\n");
+        bfree(ip->dev, a[j]);
+        a[j] = 0;
+      }
+    }
+    brelse(inbp);
+    bfree(ip->dev, ip->addrs[NDIRECT + 1]);
+    ip->addrs[NDIRECT + 1] = 0;
   }
 
   ip->size = 0;
@@ -495,6 +548,9 @@ writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
     return -1;
 
   for(tot=0; tot<n; tot+=m, off+=m, src+=m){
+    if (off/BSIZE == MAXFILE)
+      break;
+
     bp = bread(ip->dev, bmap(ip, off/BSIZE));
     m = min(n - tot, BSIZE - off%BSIZE);
     if(either_copyin(bp->data + (off % BSIZE), user_src, src, m) == -1) {
