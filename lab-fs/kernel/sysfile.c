@@ -289,7 +289,7 @@ sys_open(void)
   char path[MAXPATH];
   int fd, omode;
   struct file *f;
-  struct inode *ip;
+  struct inode *ip, *symip;
   int n;
 
   if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
@@ -303,7 +303,8 @@ sys_open(void)
       end_op();
       return -1;
     }
-  } else {
+  } 
+  else {
     if((ip = namei(path)) == 0){
       end_op();
       return -1;
@@ -314,6 +315,32 @@ sys_open(void)
       end_op();
       return -1;
     }
+  }
+
+  int cnt = 0;
+  while(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){
+    if (cnt >= 10) {
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+
+    symip = namei(ip->symlinkpath);
+    if (symip) {
+      cnt++;
+      iunlockput(ip);
+      ip = symip;
+      ilock(ip);
+    }
+    else {
+      break;
+    }
+  }
+
+  if (cnt == 0 && ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){
+    iunlockput(ip);
+    end_op();
+    return -1;
   }
 
   if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
@@ -482,5 +509,64 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+uint64 
+sys_symlink(void)
+{
+  char path[MAXPATH], target[MAXPATH];
+  struct inode *ip;
+//*dp,
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  begin_op();
+  if ((ip = namei(path)) == 0){
+    ip = create(path, T_SYMLINK, 0, 0);
+    if (ip == 0){
+      end_op();
+      return -1;
+    }
+  }else if (ip->type != T_SYMLINK){
+    end_op();
+    return -1;
+  }else{
+    ilock(ip);
+  }
+
+  memset(ip->symlinkpath, 0, MAXPATH);
+  memmove(ip->symlinkpath, target, sizeof(target));
+  iunlockput(ip);
+  end_op();
+  return 0;
+#if 0
+  if((dp = nameiparent(path, name)) == 0)
+    return 0;
+
+  ilock(dp);
+  printf("name=%s\n", name);
+  // already have target
+  if((ip = dirlookup(dp, name, 0)) != 0){
+    end_op();
+    return -1;
+  }
+
+  if((ip = ialloc(dp->dev, T_SYMLINK)) == 0)
+    panic("create: ialloc");
+
+  ilock(ip);
+  ip->nlink = 1;
+  memmove(ip->symlinkpath, target, sizeof(target));
+  iupdate(ip);
+  iunlock(ip);
+
+  if(dirlink(dp, name, ip->inum) < 0)
+    panic("create: dirlink");
+
+  iunlockput(dp);
+  iput(ip);
+#endif
+  end_op();
   return 0;
 }

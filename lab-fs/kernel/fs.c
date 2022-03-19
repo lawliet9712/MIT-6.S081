@@ -444,7 +444,6 @@ itrunc(struct inode *ip)
 
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
-    printf("start free 0\n");
       bfree(ip->dev, ip->addrs[i]);
       ip->addrs[i] = 0;
     }
@@ -458,7 +457,6 @@ itrunc(struct inode *ip)
         bfree(ip->dev, a[j]);
     }
     brelse(bp);
-    printf("start free 2\n");
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
   }
@@ -475,7 +473,6 @@ itrunc(struct inode *ip)
             bfree(ip->dev, tmp[k]);
         }
         brelse(bp);
-        printf("start free 3\n");
         bfree(ip->dev, a[j]);
         a[j] = 0;
       }
