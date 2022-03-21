@@ -4,7 +4,11 @@
         "types.h": "c",
         "user.h": "c",
         "string_view": "c",
-        "memory": "c"
+        "memory": "c",
+        "array": "c",
+        "string": "c",
+        "netfwd": "c",
+        "functional": "c"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }

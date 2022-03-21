@@ -517,7 +517,6 @@ sys_symlink(void)
 {
   char path[MAXPATH], target[MAXPATH];
   struct inode *ip;
-//*dp,
   if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
     return -1;
 
@@ -538,35 +537,6 @@ sys_symlink(void)
   memset(ip->symlinkpath, 0, MAXPATH);
   memmove(ip->symlinkpath, target, sizeof(target));
   iunlockput(ip);
-  end_op();
-  return 0;
-#if 0
-  if((dp = nameiparent(path, name)) == 0)
-    return 0;
-
-  ilock(dp);
-  printf("name=%s\n", name);
-  // already have target
-  if((ip = dirlookup(dp, name, 0)) != 0){
-    end_op();
-    return -1;
-  }
-
-  if((ip = ialloc(dp->dev, T_SYMLINK)) == 0)
-    panic("create: ialloc");
-
-  ilock(ip);
-  ip->nlink = 1;
-  memmove(ip->symlinkpath, target, sizeof(target));
-  iupdate(ip);
-  iunlock(ip);
-
-  if(dirlink(dp, name, ip->inum) < 0)
-    panic("create: dirlink");
-
-  iunlockput(dp);
-  iput(ip);
-#endif
   end_op();
   return 0;
 }
