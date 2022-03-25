@@ -485,14 +485,206 @@ sys_pipe(void)
   return 0;
 }
 
+/*
+void *mmap(void *addr, size_t length, int prot, int flags,
+           int fd, off_t offset);
+*/
 uint64
 sys_mmap(void)
 {
-  return 0;
+  uint64 addr; // user pointer to array of two integers
+  int length;
+  int prot;
+  int flags;
+  struct file* file;
+  int offset;
+
+  if(argaddr(0, &addr) < 0)
+    return -1;
+  if(argint(1, &length) < 0)
+    return -1;
+  if(argint(2, &prot) < 0)
+    return -1;
+  if(argint(3, &flags) < 0)
+    return -1;
+  if(argfd(4, 0, &file) < 0)
+    return -1;
+  if(argint(5, &offset) < 0)
+    return -1;
+
+  if(!file->readable && (prot & PROT_READ))
+    return -1;
+  if(!file->writable && (prot & PROT_WRITE) && !(flags & MAP_PRIVATE))
+    return -1;
+
+  // offset and addr can asume 0
+  struct proc* proc = myproc();
+  // step 1 : alloc vma
+  struct vma * vma = 0;
+  for (int i = 0; i < 16; i++) {
+    if (proc->vma[i].addr == 0) {
+      vma = &proc->vma[i];
+      break;
+    }
+  }
+
+  if (vma == 0)
+    return -1;
+
+  vma->length = length;
+  vma->flags = flags;
+  vma->prot = prot;
+  vma->file = file;
+  vma->valid = 1;
+
+  // step 2 : add heap size
+  uint64 retaddr = PGROUNDUP(proc->sz);
+  proc->sz = retaddr + length;
+  vma->addr = retaddr;
+  
+  // step 3 : add file ref cnt
+  filedup(vma->file);
+
+  // step 4 : record which page been mapped
+  int pgcnt = length / PGSIZE;
+  int mask = 1;
+  for (int i = 0; i < pgcnt; i++)
+  {
+    vma->dirtyflag |= (mask << i);
+  }
+
+  return retaddr;
+}
+
+struct vma* getvma(uint64 va)
+{
+  struct proc* proc = myproc();
+  struct vma* vma = 0;
+  for (int i = 0; i < 16; i++) {
+    if (proc->vma[i].valid == 0)
+      continue;
+
+    uint64 addr = proc->vma[i].addr;
+    uint64 length = proc->vma[i].length;
+    if (addr <= va && (va < (addr + length))) {
+      vma = &proc->vma[i];
+      break;
+    }
+  }
+
+  return vma;
 }
 
 uint64
 sys_munmap(void)
 {
+  // decre file ref
+  // reset file off
+
+  // just dec the ref cnt , because we incre the refcnt when we mmap
+  //fileclose(vma->file);
+  uint64 addr; // user pointer to array of two integers
+  int length;
+
+  if(argaddr(0, &addr) < 0)
+    return -1;
+  if(argint(1, &length) < 0)
+    return -1;
+
+  struct vma* vma = getvma(addr);
+  if (vma == 0)
+    return -1;
+  
+  if (length > vma->length || addr < vma->addr)
+    return -1;
+
+  // step 1 : check strategy
+  int start = ((addr - vma->addr) / PGSIZE);
+  int end = (length % PGSIZE) == 0 ? length / PGSIZE : (length / PGSIZE) + 1;
+
+  if (vma->flags & MAP_PRIVATE)
+  {
+     // do not write back to file 
+     goto finish;
+  } else if (vma->flags & MAP_SHARED) 
+  {
+    for (int i = start; i < end; i++)
+    {
+      if (walkaddr(myproc()->pagetable, (vma->addr + PGSIZE * i)))
+      {
+        vma->file->off = PGSIZE * i;
+        filewrite(vma->file, vma->addr, PGSIZE);
+      }
+    }
+  }
+
+  uint mask = 1;
+finish:
+  for (int i = start; i < end; i++)
+  {
+    vma->dirtyflag &= ~(mask << i);
+  }
+
+  printf("dirty flag = %d\n", vma->dirtyflag);
+  if (vma->dirtyflag == 0)
+  {
+    printf("all area unmmap , start recyle\n");
+    vma->valid = 0;
+    fileclose(vma->file);
+  }
+  return 0;
+}
+
+// only work for mmap
+int
+pagefault(pagetable_t pagetable, uint64 fault_va)
+{
+  // step 1 : check addr is in vma 
+  struct vma* vma = getvma(fault_va);
+  if (vma == 0)
+    return -1;
+
+  // step 2 : check permission
+  /*
+  #define PROT_NONE       0x0
+  #define PROT_READ       0x1
+  #define PROT_WRITE      0x2
+  #define PROT_EXEC       0x4
+
+  #define MAP_SHARED      0x01
+  #define MAP_PRIVATE     0x02
+  */
+  if (r_scause() == 13 && (!(vma->prot & PROT_READ) || !(vma->file->readable)))
+    return -1;    // not read permisson but excute read
+
+  if (r_scause() == 15 && (!(vma->prot & PROT_WRITE) || !(vma->file->writable)))
+    return -1;    // not write permisson but excute write
+
+  // step 3 : alloc new page and map it , setup permission flag
+  void* dst_pa = kalloc();
+  if (dst_pa == 0){
+    return -1;
+  }
+  uint8 flag = (vma->prot & PROT_READ) ? PTE_R : 0;
+  flag = (vma->prot & PROT_WRITE) ? (flag | PTE_W) : flag;
+  if (mappages(pagetable, PGROUNDDOWN(fault_va), PGSIZE, (uint64)dst_pa, PTE_U | PTE_X | flag) < 0){
+    kfree(dst_pa);
+    return -1;
+  }
+
+  // step 4 : load file content to memory
+  uint offset = PGROUNDDOWN(fault_va) - vma->addr;
+  vma->file->off = offset;
+
+  int read = 0;
+  if ((read = fileread(vma->file, PGROUNDDOWN(fault_va), PGSIZE)) < 0)
+    return -1;
+
+  // should clear zero
+  if (read < PGSIZE) {
+    uint64 pa = walkaddr(pagetable, PGROUNDDOWN(fault_va)) + read;
+    memset((void*)pa, 0, PGSIZE - read);
+  }
+
   return 0;
 }

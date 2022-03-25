@@ -40,7 +40,7 @@ _v1(char *p)
   for (i = 0; i < PGSIZE*2; i++) {
     if (i < PGSIZE + (PGSIZE/2)) {
       if (p[i] != 'A') {
-        printf("mismatch at %d, wanted 'A', got 0x%x\n", i, p[i]);
+        printf("mismatch at %d, wanted 'A', got 0x%x , p=%x\n", i, p[i], &p[i]);
         err("v1 mismatch (1)");
       }
     } else {

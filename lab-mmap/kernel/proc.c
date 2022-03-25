@@ -135,6 +135,8 @@ found:
     return 0;
   }
 
+  memset(&p->vma, 0, sizeof(p->vma));
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -279,6 +281,23 @@ fork(void)
   // Allocate process.
   if((np = allocproc()) == 0){
     return -1;
+  }
+
+  // copy mmap area
+  for (i = 0; i < 16; i++)
+  {
+    if(p->vma[i].valid)
+    {
+      np->vma[i].addr = p->vma[i].addr;
+      np->vma[i].dirtyflag = p->vma[i].dirtyflag;
+      np->vma[i].file = p->vma[i].file;
+      np->vma[i].length = p->vma[i].flags;
+      np->vma[i].flags = p->vma[i].flags;
+      np->vma[i].length = p->vma[i].length;
+      np->vma[i].prot = p->vma[i].prot;
+      np->vma[i].valid = 1;
+      filedup(np->vma[i].file);
+    }
   }
 
   // Copy user memory from parent to child.
