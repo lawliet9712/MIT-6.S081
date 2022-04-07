@@ -10,3 +10,4 @@ MIT 6.s081 课程 lab 记录
 - [6. Lab: Multithreading](https://www.yuque.com/lawliet9/mxp4s5/dsxd2k)
 - [7. Lab: networking](https://www.yuque.com/lawliet9/mxp4s5/bbuuot)
 - [8. Lab: locks](https://www.yuque.com/lawliet9/mxp4s5/ve6ugx)
+- [9. Lab: file system](https://www.yuque.com/lawliet9/mxp4s5/qyzyyl)
